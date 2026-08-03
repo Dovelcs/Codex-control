@@ -1,0 +1,14 @@
+# STM32CubeIDE generated output
+STM32CubeIDE/Debug/
+STM32CubeIDE/Release/
+
+# Editor and OS files
+.vscode/
+.idea/
+*.launch
+Thumbs.db
+.DS_Store
+
+# Python helper output
+__pycache__/
+*.py[cod]
