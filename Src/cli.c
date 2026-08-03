@@ -39,10 +39,13 @@ static const CliCommand cli_commands[] = {
     {NULL, "uart2 selftest", "uart2 selftest", "执行32字节UART2硬件回环测试"},
     {"外部 Flash 与缓存", "flash test", "flash test", "执行擦除、写入和读回自检"},
     {NULL, "cache status", "cache status", "显示串口缓存状态"},
-    {NULL, "cache dump [length]", "cache dump", "输出全部或指定长度的原始二进制数据"},
-    {NULL, "cache timestamp get", "cache timestamp get", "查看缓存时间输出开关"},
-    {NULL, "cache timestamp on", "cache timestamp on", "启用带时间和方向的十六进制输出"},
-    {NULL, "cache timestamp off", "cache timestamp off", "关闭时间输出并恢复原始二进制输出"},
+    {NULL, "cache dump [length]", "cache dump ", "按默认格式导出全部或指定长度的UART数据"},
+    {NULL, "cache dump text [length]", "cache dump text ", "导出带时间和方向的可读文本"},
+    {NULL, "cache dump hex [length]", "cache dump hex ", "导出带时间和方向的十六进制数据"},
+    {NULL, "cache dump raw [length]", "cache dump raw ", "导出不附加任何字符的原始二进制数据"},
+    {NULL, "cache timestamp get", "cache timestamp get", "查看cache dump默认输出格式"},
+    {NULL, "cache timestamp on", "cache timestamp on", "兼容命令：默认使用带时间十六进制输出"},
+    {NULL, "cache timestamp off", "cache timestamp off", "兼容命令：默认使用原始二进制输出"},
     {NULL, "cache flush", "cache flush", "立即请求提交RAM中的待写缓存"},
     {NULL, "cache clear", "cache clear", "清空全部串口缓存"},
     {"继电器与电源", "relay on", "relay on", "吸合继电器并点亮LED3"},
@@ -70,11 +73,22 @@ static char cli_history[CLI_HISTORY_DEPTH][CLI_LINE_SIZE];
 static char cli_history_draft[CLI_LINE_SIZE];
 static uint8_t cli_history_count;
 static int16_t cli_history_position;
-static uint8_t cli_cache_timestamp;
+static FlashCacheDumpFormat cli_cache_dump_format;
 
 static void Cli_Write(const char *text)
 {
   (void)Bridge_SendDebugBlocking((const uint8_t *)text, (uint16_t)strlen(text));
+}
+
+static const char *Cli_DumpFormatName(FlashCacheDumpFormat format)
+{
+  switch (format)
+  {
+    case FLASH_CACHE_DUMP_FORMAT_RAW: return "Raw二进制";
+    case FLASH_CACHE_DUMP_FORMAT_HEX: return "带时间十六进制";
+    case FLASH_CACHE_DUMP_FORMAT_TEXT: return "带时间可读文本";
+    default: return "未知";
+  }
 }
 
 static void Cli_WriteLine(const char *syntax, const char *description)
@@ -109,7 +123,7 @@ static void Cli_PrintCommandList(void)
             "  Ctrl+D        退出命令行并返回串口透传\r\n"
             "  双击Ctrl+]    500毫秒内连续按两次进入命令行\r\n"
             "  Ctrl+C        取消正在进行的缓存导出\r\n"
-            "\r\n提示：cache dump输出的是原始二进制数据。\r\n"
+            "\r\n提示：cache dump默认输出可读文本，raw模式才输出原始二进制。\r\n"
             "================================\r\n");
 }
 
@@ -328,14 +342,14 @@ static void Cli_PrintCacheStatus(void)
                  "  写入策略      : 1024字节 或 60000毫秒\r\n"
                  "  压缩格式      : v3 / LZ4（Flash块统一压缩）\r\n"
                  "  备用扇区      : %s\r\n"
-                 "  时间输出      : %s\r\n",
+                 "  默认导出格式  : %s\r\n",
                  status.present != 0U ? "已连接" : "未检测到",
                  status.jedec_id[0], status.jedec_id[1], status.jedec_id[2],
                  (unsigned long)status.session_id, state,
                  status.dump_active != 0U ? "进行中" : "空闲",
-                 status.dump_timestamp != 0U ? "带时间" : "Raw",
+                 Cli_DumpFormatName((FlashCacheDumpFormat)status.dump_format),
                  status.spare_ready != 0U ? "已擦除可用" : "后台准备中",
-                 cli_cache_timestamp != 0U ? "已开启" : "已关闭");
+                 Cli_DumpFormatName(cli_cache_dump_format));
   Cli_Write(text);
 
   (void)snprintf(text, sizeof(text),
@@ -618,6 +632,7 @@ static uint8_t Cli_Execute(void)
   uint32_t value;
   uint64_t unix_ms;
   int16_t utc_offset;
+  FlashCacheDumpFormat dump_format;
 
   while (*command == ' ' || *command == '\t')
   {
@@ -740,19 +755,19 @@ static uint8_t Cli_Execute(void)
   }
   else if (strcmp(command, "cache timestamp get") == 0)
   {
-    Cli_Write(cli_cache_timestamp != 0U ?
-              "缓存时间输出：已开启\r\n" :
-              "缓存时间输出：已关闭\r\n");
+    Cli_Write("cache dump默认输出格式：");
+    Cli_Write(Cli_DumpFormatName(cli_cache_dump_format));
+    Cli_Write("\r\n");
   }
   else if (strcmp(command, "cache timestamp on") == 0)
   {
-    cli_cache_timestamp = 1U;
-    Cli_Write("成功：cache dump将输出时间、方向和十六进制数据\r\n");
+    cli_cache_dump_format = FLASH_CACHE_DUMP_FORMAT_HEX;
+    Cli_Write("成功：cache dump默认使用带时间十六进制格式\r\n");
   }
   else if (strcmp(command, "cache timestamp off") == 0)
   {
-    cli_cache_timestamp = 0U;
-    Cli_Write("成功：cache dump将输出原始二进制数据\r\n");
+    cli_cache_dump_format = FLASH_CACHE_DUMP_FORMAT_RAW;
+    Cli_Write("成功：cache dump默认使用Raw二进制格式\r\n");
   }
   else if (strcmp(command, "cache flush") == 0)
   {
@@ -763,7 +778,32 @@ static uint8_t Cli_Execute(void)
   else if (strncmp(command, "cache dump", 10U) == 0 &&
            (command[10] == '\0' || command[10] == ' '))
   {
+    dump_format = cli_cache_dump_format;
     argument = &command[10];
+    while (*argument == ' ' || *argument == '\t')
+    {
+      argument++;
+    }
+    if (strncmp(argument, "text", 4U) == 0 &&
+        (argument[4] == '\0' || argument[4] == ' ' || argument[4] == '\t'))
+    {
+      dump_format = FLASH_CACHE_DUMP_FORMAT_TEXT;
+      argument += 4;
+    }
+    else if (strncmp(argument, "hex", 3U) == 0 &&
+             (argument[3] == '\0' || argument[3] == ' ' ||
+              argument[3] == '\t'))
+    {
+      dump_format = FLASH_CACHE_DUMP_FORMAT_HEX;
+      argument += 3;
+    }
+    else if (strncmp(argument, "raw", 3U) == 0 &&
+             (argument[3] == '\0' || argument[3] == ' ' ||
+              argument[3] == '\t'))
+    {
+      dump_format = FLASH_CACHE_DUMP_FORMAT_RAW;
+      argument += 3;
+    }
     while (*argument == ' ' || *argument == '\t')
     {
       argument++;
@@ -777,8 +817,7 @@ static uint8_t Cli_Execute(void)
       value = 0U;
     }
     if ((*argument == '\0' || value != 0U) &&
-        FlashCache_DumpStart(value, cli_cache_timestamp,
-                             Cli_DumpWriter) != 0U)
+        FlashCache_DumpStart(value, dump_format, Cli_DumpWriter) != 0U)
     {
       return CLI_EXEC_ASYNC;
     }
@@ -867,23 +906,24 @@ void Cli_Init(void)
   cli_history_count = 0U;
   cli_history_position = -1;
   cli_history_draft[0] = '\0';
-  cli_cache_timestamp = 0U;
+  cli_cache_dump_format = FLASH_CACHE_DUMP_FORMAT_TEXT;
 }
 
 void Cli_Task(void)
 {
   FlashCacheDumpResult result;
   uint32_t dumped;
-  uint8_t with_timestamp;
+  FlashCacheDumpFormat dump_format;
   uint8_t had_records;
   char text[80];
 
-  if (FlashCache_DumpTakeResult(&result, &dumped, &with_timestamp,
+  if (FlashCache_DumpTakeResult(&result, &dumped, &dump_format,
                                 &had_records) == 0U)
   {
     return;
   }
-  if (result == FLASH_CACHE_DUMP_COMPLETE && with_timestamp == 0U)
+  if (result == FLASH_CACHE_DUMP_COMPLETE &&
+      dump_format == FLASH_CACHE_DUMP_FORMAT_RAW)
   {
     return;
   }

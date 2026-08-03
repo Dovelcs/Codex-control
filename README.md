@@ -33,6 +33,9 @@ uart2 baud set <baud>
 uart2 baud save
 cache status
 cache dump [length]
+cache dump text [length]
+cache dump hex [length]
+cache dump raw [length]
 cache flush
 cache clear
 cache timestamp on|off|get
@@ -57,7 +60,8 @@ exit
 - 先写入 32 KB RAM，累计 1024 个 UART 数据字节或等待 60 秒后提交
 - 提交到 GD25Q128 时统一使用 LZ4 压缩，Flash 格式版本为 v3
 - 外部 Flash 使用可恢复的提交头、CRC、环形覆盖和预擦除备用扇区
-- `cache dump` 支持 raw 原始输出或带时间戳的可读十六进制输出
+- `cache dump` 默认输出带时间和方向的可读文本；控制字符会安全转义，连续退格会折叠显示
+- `cache dump text|hex|raw [length]` 可显式选择文本、十六进制或原始二进制格式
 - 日志导出和 `reset pulse` 均由主循环协作式状态机处理，不使用 RTOS
 
 ## 构建

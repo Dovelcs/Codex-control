@@ -197,7 +197,7 @@ static int16_t cache_time_utc_offset;
 
 static CacheDumpState cache_dump_state;
 static FlashCacheWriter cache_dump_writer;
-static uint8_t cache_dump_timestamp;
+static FlashCacheDumpFormat cache_dump_format;
 static uint32_t cache_dump_max_bytes;
 static uint32_t cache_dump_snapshot_bytes;
 static uint32_t cache_dump_output_bytes;
@@ -229,7 +229,7 @@ static uint64_t cache_dump_time_uptime_ms;
 static int16_t cache_dump_time_utc_offset;
 static FlashCacheDumpResult cache_dump_result;
 static uint32_t cache_dump_result_bytes;
-static uint8_t cache_dump_result_timestamp;
+static FlashCacheDumpFormat cache_dump_result_format;
 static uint8_t cache_dump_result_had_records;
 static uint32_t cache_dump_cancel_count;
 static uint32_t cache_dump_overflow_count;
@@ -1431,6 +1431,95 @@ static uint8_t Cache_DumpAppendPrefix(uint32_t session_id,
   return Cache_DumpAppendText(text);
 }
 
+static uint8_t Cache_DumpAppendEscapedText(const uint8_t *data,
+                                           uint16_t length)
+{
+  uint16_t index = 0U;
+  char escaped[16];
+
+  while (index < length)
+  {
+    uint8_t byte = data[index];
+
+    if (byte == '\r' && index + 1U < length && data[index + 1U] == '\n')
+    {
+      if (Cache_DumpAppendText("\r\n") == 0U)
+      {
+        return 0U;
+      }
+      index = (uint16_t)(index + 2U);
+      continue;
+    }
+    if (byte == '\n')
+    {
+      if (Cache_DumpAppendText("\r\n") == 0U)
+      {
+        return 0U;
+      }
+      index++;
+      continue;
+    }
+    if (byte == '\b')
+    {
+      uint16_t run = 1U;
+      while (index + run < length && data[index + run] == '\b')
+      {
+        run++;
+      }
+      if (run >= 4U)
+      {
+        (void)snprintf(escaped, sizeof(escaped), "<BS x%u>",
+                       (unsigned int)run);
+        if (Cache_DumpAppendText(escaped) == 0U)
+        {
+          return 0U;
+        }
+      }
+      else
+      {
+        for (uint16_t count = 0U; count < run; count++)
+        {
+          if (Cache_DumpAppendText("<BS>") == 0U)
+          {
+            return 0U;
+          }
+        }
+      }
+      index = (uint16_t)(index + run);
+      continue;
+    }
+    if (byte >= 0x20U && byte <= 0x7EU)
+    {
+      if (Cache_DumpAppend(&data[index], 1U) == 0U)
+      {
+        return 0U;
+      }
+    }
+    else
+    {
+      const char *token = NULL;
+      switch (byte)
+      {
+        case 0x00U: token = "<NUL>"; break;
+        case '\r': token = "<CR>"; break;
+        case '\t': token = "<TAB>"; break;
+        case 0x1BU: token = "<ESC>"; break;
+        case 0x7FU: token = "<DEL>"; break;
+        default:
+          (void)snprintf(escaped, sizeof(escaped), "\\x%02X", byte);
+          token = escaped;
+          break;
+      }
+      if (Cache_DumpAppendText(token) == 0U)
+      {
+        return 0U;
+      }
+    }
+    index++;
+  }
+  return Cache_DumpAppendText("\r\n\r\n");
+}
+
 static const char *Cache_ControlName(uint8_t event)
 {
   switch (event)
@@ -1488,13 +1577,14 @@ static uint8_t Cache_DumpPrepareRecord(uint32_t session_id,
     length = (uint16_t)(length - data_offset);
     cache_dump_output_bytes += length;
   }
-  else if (cache_dump_skip_bytes != 0U || cache_dump_timestamp == 0U)
+  else if (cache_dump_skip_bytes != 0U ||
+           cache_dump_format == FLASH_CACHE_DUMP_FORMAT_RAW)
   {
     return 1U;
   }
 
   cache_dump_had_records = 1U;
-  if (cache_dump_timestamp == 0U)
+  if (cache_dump_format == FLASH_CACHE_DUMP_FORMAT_RAW)
   {
     return Cache_DumpAppend(&data[data_offset], length);
   }
@@ -1515,6 +1605,10 @@ static uint8_t Cache_DumpPrepareRecord(uint32_t session_id,
     if (Cache_DumpAppendText(line) == 0U)
     {
       return 0U;
+    }
+    if (cache_dump_format == FLASH_CACHE_DUMP_FORMAT_TEXT)
+    {
+      return Cache_DumpAppendEscapedText(&data[data_offset], length);
     }
     for (uint16_t offset = 0U; offset < length; offset += 16U)
     {
@@ -1689,7 +1783,7 @@ void FlashCache_Init(void)
   cache_time_utc_offset = 0;
   cache_dump_state = CACHE_DUMP_IDLE;
   cache_dump_writer = NULL;
-  cache_dump_timestamp = 0U;
+  cache_dump_format = FLASH_CACHE_DUMP_FORMAT_RAW;
   cache_dump_max_bytes = 0U;
   cache_dump_snapshot_bytes = 0U;
   cache_dump_output_bytes = 0U;
@@ -2250,7 +2344,7 @@ void FlashCache_GetStatus(FlashCacheStatus *status)
   status->busy = cache_io_state != CACHE_IO_IDLE ? 1U : 0U;
   status->paused = cache_paused;
   status->dump_active = cache_dump_state != CACHE_DUMP_IDLE ? 1U : 0U;
-  status->dump_timestamp = cache_dump_timestamp;
+  status->dump_format = (uint8_t)cache_dump_format;
   status->session_id = cache_current_session;
   status->committed_bytes = cache_committed_bytes;
   status->committed_original_bytes = cache_committed_original_bytes;
@@ -2291,7 +2385,7 @@ static void Cache_DumpFinish(FlashCacheDumpResult result)
   cache_dump_output_offset = 0U;
   cache_dump_result = result;
   cache_dump_result_bytes = cache_dump_output_bytes;
-  cache_dump_result_timestamp = cache_dump_timestamp;
+  cache_dump_result_format = cache_dump_format;
   cache_dump_result_had_records = cache_dump_had_records;
   if (result == FLASH_CACHE_DUMP_CANCELLED)
   {
@@ -2332,17 +2426,18 @@ static void Cache_DumpCreateSnapshot(void)
   cache_dump_state = CACHE_DUMP_FLASH;
 }
 
-uint8_t FlashCache_DumpStart(uint32_t max_bytes, uint8_t with_timestamp,
+uint8_t FlashCache_DumpStart(uint32_t max_bytes, FlashCacheDumpFormat format,
                              FlashCacheWriter writer)
 {
   if (cache_present == 0U || writer == NULL ||
       cache_dump_state != CACHE_DUMP_IDLE ||
-      cache_dump_result != FLASH_CACHE_DUMP_NONE)
+      cache_dump_result != FLASH_CACHE_DUMP_NONE ||
+      format > FLASH_CACHE_DUMP_FORMAT_TEXT)
   {
     return 0U;
   }
   cache_dump_writer = writer;
-  cache_dump_timestamp = with_timestamp != 0U ? 1U : 0U;
+  cache_dump_format = format;
   cache_dump_max_bytes = max_bytes;
   cache_dump_snapshot_bytes = 0U;
   cache_dump_output_bytes = 0U;
@@ -2511,7 +2606,7 @@ uint8_t FlashCache_DumpIsActive(void)
 
 uint8_t FlashCache_DumpTakeResult(FlashCacheDumpResult *result,
                                   uint32_t *dumped_bytes,
-                                  uint8_t *with_timestamp,
+                                  FlashCacheDumpFormat *format,
                                   uint8_t *had_records)
 {
   if (cache_dump_result == FLASH_CACHE_DUMP_NONE)
@@ -2526,9 +2621,9 @@ uint8_t FlashCache_DumpTakeResult(FlashCacheDumpResult *result,
   {
     *dumped_bytes = cache_dump_result_bytes;
   }
-  if (with_timestamp != NULL)
+  if (format != NULL)
   {
-    *with_timestamp = cache_dump_result_timestamp;
+    *format = cache_dump_result_format;
   }
   if (had_records != NULL)
   {

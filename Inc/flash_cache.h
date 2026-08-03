@@ -37,6 +37,13 @@ typedef enum
   FLASH_CACHE_DUMP_OVERFLOW
 } FlashCacheDumpResult;
 
+typedef enum
+{
+  FLASH_CACHE_DUMP_FORMAT_RAW = 0,
+  FLASH_CACHE_DUMP_FORMAT_HEX,
+  FLASH_CACHE_DUMP_FORMAT_TEXT
+} FlashCacheDumpFormat;
+
 typedef struct
 {
   uint8_t valid;
@@ -51,7 +58,7 @@ typedef struct
   uint8_t busy;
   uint8_t paused;
   uint8_t dump_active;
-  uint8_t dump_timestamp;
+  uint8_t dump_format;
   uint32_t session_id;
   uint32_t committed_bytes;
   uint32_t committed_original_bytes;
@@ -98,14 +105,14 @@ void FlashCache_TimeClear(uint64_t uptime_ms);
 void FlashCache_TimeGet(uint64_t uptime_ms, FlashCacheTimeStatus *status);
 uint8_t FlashCache_TimeFormat(uint64_t unix_ms, int16_t utc_offset_minutes,
                               char *text, uint16_t size);
-uint8_t FlashCache_DumpStart(uint32_t max_bytes, uint8_t with_timestamp,
+uint8_t FlashCache_DumpStart(uint32_t max_bytes, FlashCacheDumpFormat format,
                              FlashCacheWriter writer);
 void FlashCache_DumpTask(void);
 void FlashCache_DumpCancel(void);
 uint8_t FlashCache_DumpIsActive(void);
 uint8_t FlashCache_DumpTakeResult(FlashCacheDumpResult *result,
                                   uint32_t *dumped_bytes,
-                                  uint8_t *with_timestamp,
+                                  FlashCacheDumpFormat *format,
                                   uint8_t *had_records);
 
 #endif
