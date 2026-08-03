@@ -42,6 +42,7 @@ static const CliCommand cli_commands[] = {
     {NULL, "cache dump [length]", "cache dump ", "按默认格式导出全部或指定长度的UART数据"},
     {NULL, "cache dump text [length]", "cache dump text ", "导出带时间和方向的可读文本"},
     {NULL, "cache dump raw [length]", "cache dump raw ", "导出不附加任何字符的原始二进制数据"},
+    {NULL, "cache dump clear", "cache dump clear", "完整导出成功后清空全部缓存"},
     {NULL, "cache timestamp get", "cache timestamp get", "查看cache dump默认输出格式"},
     {NULL, "cache timestamp on", "cache timestamp on", "兼容命令：默认使用带时间可读文本"},
     {NULL, "cache timestamp off", "cache timestamp off", "兼容命令：默认使用原始二进制输出"},
@@ -73,6 +74,7 @@ static char cli_history_draft[CLI_LINE_SIZE];
 static uint8_t cli_history_count;
 static int16_t cli_history_position;
 static FlashCacheDumpFormat cli_cache_dump_format;
+static uint8_t cli_cache_clear_after_dump;
 
 static void Cli_Write(const char *text)
 {
@@ -773,6 +775,16 @@ static uint8_t Cli_Execute(void)
               "成功：已请求提交RAM缓存\r\n" :
               "提示：RAM缓存为空或外部Flash不可用\r\n");
   }
+  else if (strcmp(command, "cache dump clear") == 0)
+  {
+    if (FlashCache_DumpStart(0U, FLASH_CACHE_DUMP_FORMAT_TEXT,
+                             Cli_DumpWriter) != 0U)
+    {
+      cli_cache_clear_after_dump = 1U;
+      return CLI_EXEC_ASYNC;
+    }
+    Cli_Write("错误：缓存忙或读取失败，未执行清空\r\n");
+  }
   else if (strncmp(command, "cache dump", 10U) == 0 &&
            (command[10] == '\0' || command[10] == ' '))
   {
@@ -898,6 +910,7 @@ void Cli_Init(void)
   cli_history_position = -1;
   cli_history_draft[0] = '\0';
   cli_cache_dump_format = FLASH_CACHE_DUMP_FORMAT_TEXT;
+  cli_cache_clear_after_dump = 0U;
 }
 
 void Cli_Task(void)
@@ -906,6 +919,7 @@ void Cli_Task(void)
   uint32_t dumped;
   FlashCacheDumpFormat dump_format;
   uint8_t had_records;
+  uint8_t clear_after_dump;
   char text[80];
 
   if (FlashCache_DumpTakeResult(&result, &dumped, &dump_format,
@@ -913,6 +927,8 @@ void Cli_Task(void)
   {
     return;
   }
+  clear_after_dump = cli_cache_clear_after_dump;
+  cli_cache_clear_after_dump = 0U;
   if (result == FLASH_CACHE_DUMP_COMPLETE &&
       dump_format == FLASH_CACHE_DUMP_FORMAT_RAW)
   {
@@ -929,6 +945,12 @@ void Cli_Task(void)
       (void)snprintf(text, sizeof(text), "导出完成：%lu 字节UART数据\r\n",
                      (unsigned long)dumped);
       Cli_Write(text);
+    }
+    if (clear_after_dump != 0U)
+    {
+      Cli_Write(FlashCache_Clear() != 0U ?
+                "读清完成：缓存已清空\r\n" :
+                "错误：导出已完成，但缓存清空失败\r\n");
     }
   }
   else if (result == FLASH_CACHE_DUMP_CANCELLED)

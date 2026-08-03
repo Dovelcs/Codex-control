@@ -35,6 +35,7 @@ cache status
 cache dump [length]
 cache dump text [length]
 cache dump raw [length]
+cache dump clear
 cache flush
 cache clear
 cache timestamp on|off|get
@@ -61,6 +62,7 @@ exit
 - 外部 Flash 使用可恢复的提交头、CRC、环形覆盖和预擦除备用扇区
 - `cache dump` 默认输出带时间和方向的可读文本；控制字符会安全转义，连续退格会折叠显示
 - `cache dump text|raw [length]` 可显式选择可读文本或原始二进制格式
+- `cache dump clear` 完整导出全部日志，只有导出成功后才清空；取消或出错不会清空
 - 日志导出和 `reset pulse` 均由主循环协作式状态机处理，不使用 RTOS
 
 ## 构建
