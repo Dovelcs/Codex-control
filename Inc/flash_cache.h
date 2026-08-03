@@ -40,7 +40,6 @@ typedef enum
 typedef enum
 {
   FLASH_CACHE_DUMP_FORMAT_RAW = 0,
-  FLASH_CACHE_DUMP_FORMAT_HEX,
   FLASH_CACHE_DUMP_FORMAT_TEXT
 } FlashCacheDumpFormat;
 

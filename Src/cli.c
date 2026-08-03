@@ -41,10 +41,9 @@ static const CliCommand cli_commands[] = {
     {NULL, "cache status", "cache status", "显示串口缓存状态"},
     {NULL, "cache dump [length]", "cache dump ", "按默认格式导出全部或指定长度的UART数据"},
     {NULL, "cache dump text [length]", "cache dump text ", "导出带时间和方向的可读文本"},
-    {NULL, "cache dump hex [length]", "cache dump hex ", "导出带时间和方向的十六进制数据"},
     {NULL, "cache dump raw [length]", "cache dump raw ", "导出不附加任何字符的原始二进制数据"},
     {NULL, "cache timestamp get", "cache timestamp get", "查看cache dump默认输出格式"},
-    {NULL, "cache timestamp on", "cache timestamp on", "兼容命令：默认使用带时间十六进制输出"},
+    {NULL, "cache timestamp on", "cache timestamp on", "兼容命令：默认使用带时间可读文本"},
     {NULL, "cache timestamp off", "cache timestamp off", "兼容命令：默认使用原始二进制输出"},
     {NULL, "cache flush", "cache flush", "立即请求提交RAM中的待写缓存"},
     {NULL, "cache clear", "cache clear", "清空全部串口缓存"},
@@ -85,7 +84,6 @@ static const char *Cli_DumpFormatName(FlashCacheDumpFormat format)
   switch (format)
   {
     case FLASH_CACHE_DUMP_FORMAT_RAW: return "Raw二进制";
-    case FLASH_CACHE_DUMP_FORMAT_HEX: return "带时间十六进制";
     case FLASH_CACHE_DUMP_FORMAT_TEXT: return "带时间可读文本";
     default: return "未知";
   }
@@ -761,8 +759,8 @@ static uint8_t Cli_Execute(void)
   }
   else if (strcmp(command, "cache timestamp on") == 0)
   {
-    cli_cache_dump_format = FLASH_CACHE_DUMP_FORMAT_HEX;
-    Cli_Write("成功：cache dump默认使用带时间十六进制格式\r\n");
+    cli_cache_dump_format = FLASH_CACHE_DUMP_FORMAT_TEXT;
+    Cli_Write("成功：cache dump默认使用带时间可读文本格式\r\n");
   }
   else if (strcmp(command, "cache timestamp off") == 0)
   {
@@ -789,13 +787,6 @@ static uint8_t Cli_Execute(void)
     {
       dump_format = FLASH_CACHE_DUMP_FORMAT_TEXT;
       argument += 4;
-    }
-    else if (strncmp(argument, "hex", 3U) == 0 &&
-             (argument[3] == '\0' || argument[3] == ' ' ||
-              argument[3] == '\t'))
-    {
-      dump_format = FLASH_CACHE_DUMP_FORMAT_HEX;
-      argument += 3;
     }
     else if (strncmp(argument, "raw", 3U) == 0 &&
              (argument[3] == '\0' || argument[3] == ' ' ||

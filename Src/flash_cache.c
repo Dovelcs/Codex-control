@@ -1606,38 +1606,7 @@ static uint8_t Cache_DumpPrepareRecord(uint32_t session_id,
     {
       return 0U;
     }
-    if (cache_dump_format == FLASH_CACHE_DUMP_FORMAT_TEXT)
-    {
-      return Cache_DumpAppendEscapedText(&data[data_offset], length);
-    }
-    for (uint16_t offset = 0U; offset < length; offset += 16U)
-    {
-      uint16_t count = (uint16_t)(length - offset);
-      size_t used;
-      if (count > 16U)
-      {
-        count = 16U;
-      }
-      used = (size_t)snprintf(line, sizeof(line), "  %04X:",
-                              (unsigned int)offset);
-      for (uint16_t index = 0U; index < count; index++)
-      {
-        int written = snprintf(&line[used], sizeof(line) - used, " %02X",
-                               data[data_offset + offset + index]);
-        if (written <= 0 || (size_t)written >= sizeof(line) - used)
-        {
-          return 0U;
-        }
-        used += (size_t)written;
-      }
-      line[used++] = '\r';
-      line[used++] = '\n';
-      if (Cache_DumpAppend(line, (uint16_t)used) == 0U)
-      {
-        return 0U;
-      }
-    }
-    return Cache_DumpAppendText("\r\n");
+    return Cache_DumpAppendEscapedText(&data[data_offset], length);
   }
 
   if (record->direction == FLASH_CACHE_RECORD_CONTROL &&
